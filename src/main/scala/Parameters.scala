@@ -325,6 +325,9 @@ final class Parameters(
     private val _look: _Lookup
   ) {
 
+  // Cache lookups because full lookup is slow
+  private val _cache = new java.util.concurrent.ConcurrentHashMap[Any, Any]
+
   private def _site() = _world._siteView(_look)
 
   // Create a new Parameters that just defers to this one. This is identical
@@ -332,11 +335,16 @@ final class Parameters(
   def push():Parameters =
     new Parameters(_world, _look.push())
 
-  def apply[T](field:Any):T =
-    _world._eval(_look(field, _site())).asInstanceOf[T]
+  def apply[T](field: Any): T = {
+    if (_cache.contains(field)) _cache.get(field).asInstanceOf[T]
+    else {
+      val lookup = _world._eval(_look(field, _site())).asInstanceOf[T]
+      _cache.put(field, lookup)
+      lookup.asInstanceOf[T]
+    }
+  }
 
-  def apply[T](field:Field[T]):T =
-    _world._eval(_look(field, _site())).asInstanceOf[T]
+  def apply[T](field: Field[T]): T = apply(field: Any)
 
   def constrain(gen:ViewSym=>Ex[Boolean]) = {
     val g = gen(new ViewSym(_site()))
