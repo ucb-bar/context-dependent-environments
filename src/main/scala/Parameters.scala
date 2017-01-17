@@ -6,6 +6,27 @@ import scala.collection.mutable
 // Convention: leading _'s on names means private to the outside world
 // but accessible to anything in this file.
 
+/** Custom "MatchError" to improve performance of CDE
+  * Mirrors [[scala.MatchError]]
+  */
+final class CDEMatchError(obj: Any = null) extends Exception {
+  override def fillInStackTrace() = this
+
+  // Borrowed from scala.MatchError
+  // lazy so that objString is only created upon calling getMessage
+  private lazy val objString = {
+    def ofClass = "of class " + obj.getClass.getName
+    if (obj == null) "null"
+    else try {
+      obj.toString + " (" + ofClass + ")"
+    } catch {
+      case _: Throwable => "an instance " + ofClass
+    }
+  }
+
+  override def getMessage = objString
+}
+
 class ParameterUndefinedException(field:Any, cause:Throwable=null)
   extends RuntimeException("Parameter " + field + " undefined.", cause)
 
@@ -29,6 +50,7 @@ abstract class View {
   def sym[T](pname:Any, site:View):Ex[T]
 
   // query for a parameters value using the default site
+  def apply[T](knob:Knob[T]):T
   final def apply[T](pname:Any):T = apply[T](pname, deftSite)
   final def apply[T](field:Field[T]):T = apply[T](field.asInstanceOf[Any], deftSite)
 
@@ -99,6 +121,9 @@ abstract class World(
   abstract class _View extends View {
     val look: _Lookup
 
+    def apply[T](knob:Knob[T]):T = {
+      _eval(ExVar[T](_VarKnob[T](knob.name)))
+    }
     def apply[T](pname:Any, site:View):T = {
       _eval(look(pname, site).asInstanceOf[Ex[T]])
     }
@@ -148,6 +173,7 @@ abstract class World(
           try topDefs(pname, site, here)
           catch {
             case e:scala.MatchError => throw new ParameterUndefinedException(pname, e)
+            case e:CDEMatchError => throw new ParameterUndefinedException(pname, e)
           }
         ) match {
           case k:Knob[T @unchecked] => ExVar[T](_VarKnob[T](k.name))
